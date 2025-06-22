@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Crew Link Summary</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js"></script>
+  <style>
+    body{font-family:'Segoe UI',sans-serif;background:#f4f7fb;padding:20px;color:#333}
+    h1,h2{color:#1a327f}
+    .card{background:#fff;padding:20px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.05);margin-bottom:20px}
+    select,input[type="text"]{margin:6px 10px 6px 0;padding:6px 10px;border-radius:5px;border:1px solid #ccc}
+    input[placeholder="HH:mm"]{width:90px}
+    button{background:#1a327f;color:#fff;padding:8px 16px;border:none;border-radius:6px;cursor:pointer;transition:.3s}
+    button:hover{background:#14255c}
+    table{width:100%;margin-top:20px;border-collapse:collapse;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.1);border-radius:10px;overflow:hidden}
+    th{background:#1a327f;color:#fff;padding:10px}
+    td{border:1px solid #ddd;padding:10px;text-align:center}
+    td[contenteditable="true"]{background:#fdf6e3}
+    tfoot td{background:#eef;font-weight:bold}
+    .delete-btn{background:#c0392b;color:#fff;border:none;padding:6px 10px;border-radius:5px;cursor:pointer}
+    .delete-btn:hover{background:#a5281f}
+  </style>
+</head>
+<body>
+  <h1>Crew Link Summary</h1>
+  <div class="card">
+    <h2>Add New Duty</h2>
+    HQ:
+    <select id="hq" onchange="updateHeading()">
+      <option>MAO</option><option>SL</option><option>RN</option>
+    </select>
+    Crew Link:
+    <select id="link" onchange="updateHeading()">
+      <option>Link 1</option><option>Link 2</option><option>Link 3</option><option>Link 4</option>
+    </select>
+    Train No:<input type="text" id="trainNo" value="16596"/>
+    From:<select id="fromStation">
+      <option>MAO</option><option>MAQ</option><option>RN</option><option>MAJN</option>
+      <option>SL</option><option>MRDW</option><option>KAWR</option><option>VSG</option>
+    </select>
+    To:<select id="toStation">
+      <option>MAO</option><option>MAQ</option><option>RN</option><option>MAJN</option>
+      <option>SL</option><option>MRDW</option><option>KAWR</option><option>VSG</option>
+    </select>
+    Sign On:<input type="text" id="signOn" placeholder="HH:mm"/>
+    Sign Off:<input type="text" id="signOff" placeholder="HH:mm"/>
+    Day:<select id="dayOfDuty">
+      <option>Mon</option><option>Tue</option><option>Wed</option><option>Thu</option>
+      <option>Fri</option><option>Sat</option><option>Sun</option>
+    </select>
+    <button onclick="addOrFillRow()">+ Add Duty Row</button>
+  </div>
+
+  <div style="margin:20px 0">
+    <button onclick="exportToExcel()">📊 Export to Excel</button>
+    <button onclick="exportToPDF()">📄 Export to PDF</button>
+  </div>
+
+  <h2 id="summaryHeading">MAO Link 1 - Summary</h2>
+  <table id="dutyTable">
+    <thead>
+      <tr><th>#</th><th>TRAIN</th><th>FROM</th><th>TO</th><th>DEPT</th><th>ARR</th>
+          <th>SIGN ON</th><th>SIGN OFF</th><th>DUTY&nbsp;HRS</th><th>NIGHT&nbsp;HRS</th>
+          <th contenteditable="true">KM</th><th contenteditable="true">HQ&nbsp;REST</th>
+          <th contenteditable="true">OS&nbsp;REST</th><th></th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+    <tfoot>
+      <tr><td colspan="8" style="text-align:right">Fortnight Total:</td><td id="ftDuty">00:00</td><td id="ftNight">00:00</td><td id="ftKm">0</td><td colspan="2"></td></tr>
+      <tr><td colspan="8" style="text-align:right">Monthly Total:</td><td id="mtDuty">00:00</td><td id="mtNight">00:00</td><td id="mtKm">0</td><td colspan="2"></td></tr>
+    </tfoot>
+  </table>
+
+  <script>
+    flatpickr("#signOn",{enableTime:true,noCalendar:true,dateFormat:"H:i",time_24hr:true});
+    flatpickr("#signOff",{enableTime:true,noCalendar:true,dateFormat:"H:i",time_24hr:true});
+
+    function updateHeading(){
+      const hq=document.getElementById("hq").value,link=document.getElementById("link").value;
+      document.getElementById("summaryHeading").innerText=`${hq} ${link} - Summary`;
+    }
+
+    function parseMin(str){const[h,m]=str.split(":").map(Number);return h*60+m;}
+    function formatMin(m){const h=String(Math.floor(m/60)).padStart(2,"0");const mm=String(m%60).padStart(2,"0");return`${h}:${mm}`;}
+
+    function addOrFillRow(){
+      const tbody=document.getElementById("tableBody");
+      const train=document.getElementById("trainNo").value;
+      const from=document.getElementById("fromStation").value;
+      const to=document.getElementById("toStation").value;
+      const signOn=document.getElementById("signOn").value;
+      const signOff=document.getElementById("signOff").value;
+
+      if(!signOn||!signOff){alert("Please enter Sign On and Sign Off times.");return;}
+
+      const on=parseMin(signOn),off=parseMin(signOff)+(parseMin(signOff)<on?1440:0);
+      const duty=off-on;
+      let night=0;for(let t=on;t<off;t++){const m=t%1440;if(m>=1320||m<360)night++;}
+
+      
+      const distances = {
+        "MAO-MAJN": 312, "MAJN-MAO": 312,
+        "MAO-RN": 239, "RN-MAO": 239,
+        "MAO-KAWR": 120, "KAWR-MAO": 120,
+        "MAO-MAQ": 317, "MAQ-MAO": 317,
+        "MAO-MRDW": 153, "MRDW-MAO": 153,
+        "MAO-SL": 292, "SL-MAO": 292,
+        "SL-MRDW": 138, "MRDW-SL": 138,
+        "SL-MAQ": 120, "MAQ-SL": 120,
+        "MRDW-MAQ": 163, "MAQ-MRDW": 163,
+        "MAO-VSG": 120, "VSG-MAO": 0
+      };
+      const routeKey = from + "-" + to;
+      const km = distances[routeKey] !== undefined ? distances[routeKey] : 0;
+      const row=tbody.insertRow();
+    
+      row.innerHTML=`<td>${tbody.rows.length}</td><td>${train}</td><td>${from}</td><td>${to}</td><td>--</td><td>--</td>
+      <td>${signOn}</td><td>${signOff}</td><td>${formatMin(duty)}</td><td>${formatMin(night)}</td>
+      <td contenteditable="true">${km}</td><td contenteditable="true"></td><td contenteditable="true"></td>
+      <td><button onclick="this.closest('tr').remove();updateTotals()">🗑️</button></td>`;
+      updateTotals();
+    }
+
+    function updateTotals(){
+      let td=0,tn=0,tk=0;
+      document.querySelectorAll("#tableBody tr").forEach(r=>{
+        td+=parseMin(r.cells[8].innerText)||0;
+        tn+=parseMin(r.cells[9].innerText)||0;
+        tk+=parseInt(r.cells[10].innerText)||0;
+      });
+      document.getElementById("ftDuty").innerText=document.getElementById("mtDuty").innerText=formatMin(td);
+      document.getElementById("ftNight").innerText=document.getElementById("mtNight").innerText=formatMin(tn);
+      document.getElementById("ftKm").innerText=document.getElementById("mtKm").innerText=tk;
+    }
+
+    function exportToPDF(){
+      const{jsPDF}=window.jspdf;
+      const doc=new jsPDF();
+      const t=document.getElementById("summaryHeading").innerText.replace(" - Summary"," Details");
+      doc.text(t,14,15);
+      doc.autoTable({html:"#dutyTable",startY:20});
+      doc.save(t.replace(/\s+/g,"_").toLowerCase()+".pdf");
+    }
+
+    function exportToExcel(){
+      const t=document.getElementById("summaryHeading").innerText.replace(" - Summary"," Details");
+      const wb=XLSX.utils.book_new();
+      const ws=XLSX.utils.table_to_sheet(document.getElementById("dutyTable"));
+      XLSX.utils.book_append_sheet(wb,ws,t);
+      XLSX.writeFile(wb,t.replace(/\s+/g,"_").toLowerCase()+".xlsx");
+    }
+
+    updateHeading();
+  </script>
+</body>
+</html>
